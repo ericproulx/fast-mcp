@@ -2,16 +2,17 @@
 
 RSpec.describe FastMcp::Transports::RackTransport do
   let(:app) { ->(_env) { [200, { 'Content-Type' => 'text/plain' }, ['OK']] } }
+  let(:logger_output) { StringIO.new }
+  let(:logger) { Logger.new(logger_output) }
   let(:server) do 
     instance_double(FastMcp::Server, 
-      logger: Logger.new(nil), 
+      logger: logger, 
       transport: nil, 
       'transport=' => nil,
       contains_filters?: false,
       handle_request: nil  # handle_request doesn't return anything, it sends through transport
     )
   end
-  let(:logger) { Logger.new(nil) }
   let(:transport) { described_class.new(app, server, logger: logger, localhost_only: localhost_only) }
   let(:localhost_only) { true }
 
@@ -33,15 +34,20 @@ RSpec.describe FastMcp::Transports::RackTransport do
 
   describe '#start' do
     it 'starts the transport' do
-      expect(logger).to receive(:debug).with(/Starting Rack transport/)
-      expect(logger).to receive(:debug).with(/DNS rebinding protection enabled/)
+      logger.level = Logger::DEBUG
+      
       transport.start
+      
+      expect(logger_output.string).to include('Starting Rack transport')
+      expect(logger_output.string).to include('DNS rebinding protection enabled')
       expect(transport.instance_variable_get(:@running)).to be(true)
     end
   end
 
   describe '#stop' do
     it 'stops the transport and closes SSE connections' do
+      logger.level = Logger::DEBUG
+      
       # Add a mock SSE client
       client_stream = double('stream')
       expect(client_stream).to receive(:respond_to?).with(:close).and_return(true)
@@ -51,14 +57,16 @@ RSpec.describe FastMcp::Transports::RackTransport do
       transport.instance_variable_set(:@sse_clients, { 'test-client' => { stream: client_stream } })
       transport.instance_variable_set(:@running, true)
 
-      expect(logger).to receive(:debug).with('Stopping Rack transport')
       transport.stop
 
+      expect(logger_output.string).to include('Stopping Rack transport')
       expect(transport.instance_variable_get(:@running)).to be(false)
       expect(transport.sse_clients).to be_empty
     end
 
     it 'handles errors when closing SSE connections' do
+      logger.level = Logger::DEBUG
+      
       # Add a mock SSE client that raises an error when closed
       client_stream = double('stream')
       expect(client_stream).to receive(:respond_to?).with(:close).and_return(true)
@@ -68,11 +76,10 @@ RSpec.describe FastMcp::Transports::RackTransport do
       transport.instance_variable_set(:@sse_clients, { 'test-client' => { stream: client_stream } })
       transport.instance_variable_set(:@running, true)
 
-      expect(logger).to receive(:debug).with('Stopping Rack transport')
-      expect(logger).to receive(:error).with(/Error closing SSE connection/)
-
       transport.stop
 
+      expect(logger_output.string).to include('Stopping Rack transport')
+      expect(logger_output.string).to include('Error closing SSE connection')
       expect(transport.instance_variable_get(:@running)).to be(false)
       expect(transport.sse_clients).to be_empty
     end
@@ -102,9 +109,11 @@ RSpec.describe FastMcp::Transports::RackTransport do
                                           'client2' => { stream: client2_stream, mutex: Mutex.new }
                                         })
 
-        expect(logger).to receive(:debug).with(/Broadcasting message to 2 SSE clients/)
-
+        logger.level = Logger::DEBUG
+        
         transport.send_message({ test: 'message' })
+        
+        expect(logger_output.string).to include('Broadcasting message to 2 SSE clients')
       end
     end
 
@@ -121,9 +130,11 @@ RSpec.describe FastMcp::Transports::RackTransport do
                                           'client' => { stream: client_stream, mutex: Mutex.new }
                                         })
 
-        expect(logger).to receive(:debug).with(/Broadcasting message to 1 SSE clients/)
-
+        logger.level = Logger::DEBUG
+        
         transport.send_message('test message')
+        
+        expect(logger_output.string).to include('Broadcasting message to 1 SSE clients')
       end
     end
 
@@ -137,11 +148,13 @@ RSpec.describe FastMcp::Transports::RackTransport do
 
         transport.instance_variable_set(:@sse_clients, { 'test-client' => { stream: client_stream, mutex: Mutex.new } })
 
-        expect(logger).to receive(:debug).with(/Broadcasting message to 1 SSE clients/)
-        expect(logger).to receive(:error).with(/Error sending message to client test-client/)
-        expect(logger).to receive(:info).with(/Unregistering SSE client: test-client/)
-
+        logger.level = Logger::DEBUG
+        
         transport.send_message({ test: 'message' })
+        
+        expect(logger_output.string).to include('Broadcasting message to 1 SSE clients')
+        expect(logger_output.string).to include('Error sending message to client test-client')
+        expect(logger_output.string).to include('Unregistering SSE client: test-client')
 
         # The client should be removed after the error
         expect(transport.sse_clients).to be_empty
@@ -163,11 +176,13 @@ RSpec.describe FastMcp::Transports::RackTransport do
 
         transport.instance_variable_set(:@sse_clients, { 'test-client' => { stream: client_stream, mutex: client_mutex } })
 
-        expect(logger).to receive(:debug).with(/Broadcasting message to 1 SSE clients/)
-        expect(logger).to receive(:error).with(/Error sending message to client test-client/)
-        expect(logger).to receive(:info).with(/Unregistering SSE client: test-client/)
-
+        logger.level = Logger::DEBUG
+        
         transport.send_message({ test: 'message' })
+        
+        expect(logger_output.string).to include('Broadcasting message to 1 SSE clients')
+        expect(logger_output.string).to include('Error sending message to client test-client')
+        expect(logger_output.string).to include('Unregistering SSE client: test-client')
 
         # The client should be removed after the error
         expect(transport.sse_clients).to be_empty

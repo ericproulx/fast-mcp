@@ -33,7 +33,7 @@ module FastMcp
                   :allowed_ips
 
       def initialize(app, server, options = {}, &_block)
-        super(server, logger: options[:logger])
+        super(server, logger: options[:logger], signal_handler: options[:signal_handler])
         @app = app
         @path_prefix = options[:path_prefix] || DEFAULT_PATH_PREFIX
         @messages_route = options[:messages_route] || 'messages'

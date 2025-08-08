@@ -1,15 +1,20 @@
 # frozen_string_literal: true
 
 require_relative 'base_transport'
+require_relative '../io_handler'
 
 module FastMcp
   module Transports
     # STDIO transport for MCP
     # This transport uses standard input/output for communication
     class StdioTransport < BaseTransport
-      def initialize(server, logger: nil)
-        super
+      attr_reader :io_handler
+
+      def initialize(server, logger: nil, signal_handler: nil, io_handler: nil)
+        super(server, logger: logger, signal_handler: signal_handler)
         @running = false
+        @io_handler = io_handler || IOHandler.new
+        @mutex = Mutex.new
       end
 
       # Start the transport
@@ -18,12 +23,12 @@ module FastMcp
         @running = true
 
         # Process input from stdin
-        while @running && (line = $stdin.gets)
+        while running? && (line = @io_handler.gets)
           begin
             process_message(line.strip)
           rescue StandardError => e
             @logger.error("Error processing message: #{e.message}")
-            @logger.error(e.backtrace.join("\n"))
+            @logger.error(e.backtrace.join("\n")) if e.backtrace.any?
             send_error(-32_000, "Internal error: #{e.message}")
           end
         end
@@ -33,14 +38,22 @@ module FastMcp
       def stop
         @logger.info('Stopping STDIO transport')
         @running = false
+        @io_handler.close
       end
 
       # Send a message to the client
       def send_message(message)
-        json_message = message.is_a?(String) ? message : JSON.generate(message)
+        @mutex.synchronize do
+          return unless @running
 
-        $stdout.puts(json_message)
-        $stdout.flush
+          json_message = message.is_a?(String) ? message : JSON.generate(message)
+          @io_handler.write(json_message)
+        end
+      end
+
+      # Thread-safe check if the transport is running
+      def running?
+        @mutex.synchronize { @running }
       end
 
       private
